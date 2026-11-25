@@ -1,77 +1,139 @@
 #!/usr/bin/env python3
-"""Render the 26 November 2026 front page for make.fun news-image-20261126.
+"""Front page for Thursday 26 November 2026 (make.fun news-image-20261126).
 
-High-density newspaper front page: 39 regional stories across 6 regions plus
-3 illustrated lead stories, a KPI numbers bar, a world map strip with 6
-markers, a UTC timeline bar, a red-bordered DATE CHECK badge, a region
-distribution bar, and source labels. 1024x1024, deterministic, PIL only.
+A dense newspaper front page: masthead, KPI bar, three illustrated leads,
+a world map, a UTC timeline, six region sections totalling 39 stories, a
+region distribution bar and a source footer. 1024x1024, PIL only,
+deterministic: no network, no randomness, no timestamps inside the image
+beyond the fixed date.
 """
-import math
 from PIL import Image, ImageDraw, ImageFont
 
-PAGE_W, PAGE_H = 1024, 1024
-BACKGROUND = (251, 247, 238)
-FOREGROUND = (20, 20, 20)
-ACCENT = (176, 30, 40)
-DEEP = (22, 35, 63)
-MUTED = (90, 88, 82)
-BODY_INK = (46, 44, 40)
+W, H = 1024, 1024
+PAPER = (251, 247, 238)
+INK = (18, 18, 18)
+RED = (176, 30, 40)
+NAVY = (22, 35, 63)
+GREY = (92, 90, 84)
+BODY = (54, 52, 48)
 WHITE = (255, 255, 255)
-MAP_FILL = (178, 198, 214)
-MAP_LINE = (70, 95, 120)
-KPI_BG = (240, 235, 224)
-RULE_LIGHT = (210, 204, 192)
+SEA = (178, 198, 214)
+SEA_EDGE = (70, 95, 120)
+KPI_FILL = (240, 235, 224)
 
-SERIF_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"
-SERIF = "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"
-SANS_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-SANS = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+F_SERIF_B = "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"
+F_SERIF = "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"
+F_SANS_B = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+F_SANS = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
-GUTTER = 36
-CONTENT_W = PAGE_W - 2 * GUTTER  # 952
-COL_GAP = 14
-COL_W = (CONTENT_W - 2 * COL_GAP) // 3  # 308
-COL_X = [GUTTER, GUTTER + COL_W + COL_GAP, GUTTER + 2 * (COL_W + COL_GAP)]
+MARGIN = 44
+INNER = W - 2 * MARGIN
+GAP = 12
+
+
+def font(path, size):
+    return ImageFont.truetype(path, size)
+
+
+def wrap_text(d, text, fnt, max_w):
+    """Greedy word wrap; returns a list of lines that fit max_w."""
+    lines, cur = [], ""
+    for word in text.split(" "):
+        trial = (cur + " " + word).strip()
+        if d.textlength(trial, font=fnt) <= max_w:
+            cur = trial
+        else:
+            if cur:
+                lines.append(cur)
+            cur = word
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def draw_center(d, cx, y, text, fnt, fill=INK):
+    w = d.textlength(text, font=fnt)
+    d.text((cx - w / 2, y), text, font=fnt, fill=fill)
+    return y + fnt.size
+
+
+def rule(d, y, x0=MARGIN, x1=W - MARGIN, weight=1, fill=INK):
+    d.rectangle([x0, y, x1, y + weight - 1], fill=fill)
+    return y + weight
+
+
+def draw_satellite(d, x, y, s):
+    """A small satellite: body, panels, dish."""
+    d.rectangle([x + s * 0.38, y + s * 0.35, x + s * 0.62, y + s * 0.65],
+                fill=NAVY)
+    d.rectangle([x + s * 0.05, y + s * 0.42, x + s * 0.32, y + s * 0.58],
+                fill=RED)
+    d.rectangle([x + s * 0.68, y + s * 0.42, x + s * 0.95, y + s * 0.58],
+                fill=RED)
+    d.ellipse([x + s * 0.44, y + s * 0.42, x + s * 0.56, y + s * 0.58],
+              fill=WHITE)
+    d.line([x + s * 0.5, y + s * 0.35, x + s * 0.72, y + s * 0.12],
+           fill=NAVY, width=2)
+    d.ellipse([x + s * 0.66, y + s * 0.06, x + s * 0.78, y + s * 0.18],
+              outline=NAVY, width=2)
+
+
+def draw_planet(d, x, y, s):
+    """A ringed planet."""
+    d.ellipse([x + s * 0.2, y + s * 0.18, x + s * 0.8, y + s * 0.82],
+              fill=(120, 140, 170))
+    d.ellipse([x + s * 0.32, y + s * 0.3, x + s * 0.68, y + s * 0.7],
+              fill=(150, 170, 195))
+    d.ellipse([x + s * 0.05, y + s * 0.42, x + s * 0.95, y + s * 0.58],
+              outline=RED, width=3)
+    d.ellipse([x + s * 0.42, y + s * 0.4, x + s * 0.5, y + s * 0.48],
+              fill=WHITE)
+
+
+def draw_rocket(d, x, y, s):
+    """A small rocket with a flame."""
+    d.polygon([(x + s * 0.5, y + s * 0.05), (x + s * 0.7, y + s * 0.4),
+               (x + s * 0.3, y + s * 0.4)], fill=NAVY)
+    d.rectangle([x + s * 0.32, y + s * 0.38, x + s * 0.68, y + s * 0.72],
+                fill=NAVY)
+    d.polygon([(x + s * 0.32, y + s * 0.72), (x + s * 0.14, y + s * 0.88),
+               (x + s * 0.32, y + s * 0.82)], fill=NAVY)
+    d.polygon([(x + s * 0.68, y + s * 0.72), (x + s * 0.86, y + s * 0.88),
+               (x + s * 0.68, y + s * 0.82)], fill=NAVY)
+    d.polygon([(x + s * 0.42, y + s * 0.72), (x + s * 0.58, y + s * 0.72),
+               (x + s * 0.5, y + s * 0.98)], fill=RED)
+    d.ellipse([x + s * 0.42, y + s * 0.44, x + s * 0.58, y + s * 0.6],
+              fill=WHITE)
+
+
+ICONS = {"satellite": draw_satellite, "planet": draw_planet,
+         "rocket": draw_rocket}
 
 LEADS = [
-    {
-        "kicker": "SPACE  ·  NATO",
-        "headline": "RUSSIA'S NUCLEAR SATELLITE ALARMS NATO",
-        "deck": (
-            'Western intel: Moscow\'s nuclear "Sputnik-S" satellite, stored '
-            "near Moscow for years, could launch in 60 days (possibly Dec). "
-            "NATO's Rutte vows to defend every inch, including space. "
-            "Kremlin denies it."
-        ),
-        "icon": "satellite",
-        "tint": (244, 220, 218),
-        "source": "Reuters / NDR-WDR-SZ, Nov 23",
-    },
-    {
-        "kicker": "SPACE  ·  MERCURY",
-        "headline": "BEPICOLOMBO REACHES MERCURY AFTER 8 YEARS",
-        "deck": (
-            "ESA/JAXA BepiColombo enters Mercury orbit on 21 Nov 2026 — only "
-            "the second mission ever to do so after NASA's MESSENGER. Two "
-            "orbiters separate 9–10 Dec; science begins April 2027."
-        ),
-        "icon": "planet",
-        "tint": (214, 230, 242),
-        "source": "AP / Washington Post",
-    },
-    {
-        "kicker": "SPACE  ·  CHINA",
-        "headline": "FIRST FOREIGNER ABOARD TIANGONG",
-        "deck": (
-            "Shenzhou-24 docks 11:56 on 25 Nov; crew enters Tiangong the same "
-            "day. Pakistani payload specialist Muhammad Zeeshan Ali is the "
-            "first foreign astronaut on the station; returns on Shenzhou-23 "
-            "in 5–10 days."
-        ),
-        "icon": "rocket",
-        "tint": (250, 232, 205),
-        "source": "Xinhua / Reuters",
-    },
+    {"kicker": "SPACE  ·  NATO",
+     "headline": "RUSSIA'S NUCLEAR SATELLITE ALARMS NATO",
+     "deck": ("Western intel: Moscow's \u201cSputnik-S\u201d satellite, stored "
+              "near Moscow for years, could launch in 60 days, possibly "
+              "in December. NATO's Rutte vows to defend every inch, "
+              "including space. Kremlin denies it."),
+     "icon": "satellite", "tint": (244, 220, 218),
+     "source": "Reuters / NDR-WDR-SZ, Nov 23"},
+    {"kicker": "SPACE  ·  MERCURY",
+     "headline": "BEPICOLOMBO REACHES MERCURY AFTER 8 YEARS",
+     "deck": ("ESA/JAXA BepiColombo enters Mercury orbit on 21 Nov 2026 "
+              "\u2014 only the second mission ever to do so after NASA's "
+              "MESSENGER. Two orbiters separate 9\u201310 Dec; science "
+              "begins April 2027."),
+     "icon": "planet", "tint": (214, 230, 242),
+     "source": "AP / Washington Post"},
+    {"kicker": "SPACE  ·  CHINA",
+     "headline": "FIRST FOREIGNER ABOARD TIANGONG",
+     "deck": ("Shenzhou-24 docks 11:56 on 25 Nov; crew enters Tiangong "
+              "the same day. Pakistani payload specialist Muhammad "
+              "Zeeshan Ali is the first foreign astronaut on the "
+              "station; returns on Shenzhou-23 in 5\u201310 days."),
+     "icon": "rocket", "tint": (250, 232, 205),
+     "source": "Xinhua / Reuters"},
 ]
 
 KPIS = [
@@ -83,553 +145,281 @@ KPIS = [
 ]
 
 REGIONS = [
-    ("ASIA", "9", [
-        ("XI PROBE ENSNARES SHANGHAI CHIEF CHEN", None),
-        ("S. KOREA MINISTER QUITS OVER EXAM SCANDAL", None),
-        ("AUSTRALIA FORCES PLATFORMS TO REMOVE HARMFUL CONTENT", None),
-        ("AUSTRALIA-SOLOMON IS. SECURITY PACT", "shield"),
-        ("N. KOREA THREATENS SWISS OFFICE", None),
-        ("VIETNAM PUSHES GREEN FARMING", None),
-        ("S. KOREA TO BOOST EV INDUSTRY", None),
-        ("INDIA SPACE ECONOMY $9BN TO $45BN", "rocket"),
-        ("IITs ADD 6,000 TECH SEATS", None),
+    ("ASIA", 9, [
+        "XI PROBE ENSNARES SHANGHAI CHIEF CHEN",
+        "S. KOREA MINISTER QUITS OVER EXAM SCANDAL",
+        "AUSTRALIA FORCES PLATFORMS TO REMOVE HARMFUL CONTENT",
+        "AUSTRALIA-SOLOMON IS. SECURITY PACT",
+        "N. KOREA THREATENS SWISS OFFICE",
+        "VIETNAM PUSHES GREEN FARMING",
+        "S. KOREA TO BOOST EV INDUSTRY",
+        "INDIA SPACE ECONOMY $9BN TO $45BN",
+        "IITs ADD 6,000 TECH SEATS",
     ]),
-    ("MIDDLE EAST", "6", [
-        ("IRAN BRACES FOR US BLOCKADE", "ship"),
-        ("ISRAEL: IRAN BUILDING CHEMICAL WEAPONS", None),
-        ("SWIMMER CROSSES HORMUZ FOR OCEANS", None),
-        ("EGYPT: SUEZ REVENUES RECOVERING", None),
-        ("ETHIOPIA PUSHES HEALTH INDEPENDENCE", None),
-        ("HOUTHI THREAT STILL LOOMS", "flame"),
+    ("MIDDLE EAST", 6, [
+        "IRAN BRACES FOR US BLOCKADE",
+        "ISRAEL: IRAN BUILDING CHEMICAL WEAPONS",
+        "SWIMMER CROSSES HORMUZ FOR OCEANS",
+        "EGYPT: SUEZ REVENUES RECOVERING",
+        "ETHIOPIA PUSHES HEALTH INDEPENDENCE",
+        "HOUTHI THREAT STILL LOOMS",
     ]),
-    ("EUROPE", "8", [
-        ("EU UNVEILS 22ND RUSSIA SANCTIONS PACKAGE", "shield"),
-        ("RUSSIA'S OWN TOLL: NEARLY 500,000 DEAD", None),
-        ("FRANCE EYES CRITICAL MINERALS FREEDOM", None),
-        ("UK PROBES NUCLEAR TEST LEGACY", None),
-        ("POLAND ALARMS OVER AIRSPACE VIOLATIONS", "satellite"),
-        ("RUSSIA RAISES DEFENCE SPENDING", None),
-        ("UKRAINE-HUNGARY SEEK ECONOMIC TIES", None),
-        ("EU PLANS €50BN TECH FUND", None),
+    ("EUROPE", 8, [
+        "EU UNVEILS 22ND RUSSIA SANCTIONS PACKAGE",
+        "RUSSIA'S OWN TOLL: NEARLY 500,000 DEAD",
+        "FRANCE EYES CRITICAL MINERALS FREEDOM",
+        "UK PROBES NUCLEAR TEST LEGACY",
+        "POLAND ALARMS OVER AIRSPACE VIOLATIONS",
+        "RUSSIA RAISES DEFENCE SPENDING",
+        "UKRAINE-HUNGARY SEEK ECONOMIC TIES",
+        "EU PLANS \u20ac50BN TECH FUND",
     ]),
-    ("AMERICAS", "8", [
-        ("US CONSUMER CONFIDENCE NEAR 2-YEAR HIGH", None),
-        ("CANADA HOLDS INFLATION STRATEGY", None),
-        ("PETROBRAS UNVEILS $122BN PLAN", "flame"),
-        ("VENEZUELA DEBT: $237.5BN REVEALED", None),
-        ("COLOMBIA: 10 YEARS SINCE PEACE DEAL", "globe"),
-        ("CARTAGENA HOSTAGES FREED AFTER 17 HRS", None),
-        ("US READIES NEW GLOBAL TARIFF PLAN", None),
-        ("ABREGO GARCIA LEAVES US FOR SPAIN", None),
+    ("AMERICAS", 8, [
+        "US CONSUMER CONFIDENCE NEAR 2-YEAR HIGH",
+        "CANADA HOLDS INFLATION STRATEGY",
+        "PETROBRAS UNVEILS $122BN PLAN",
+        "VENEZUELA DEBT: $237.5BN REVEALED",
+        "COLOMBIA: 10 YEARS SINCE PEACE DEAL",
+        "CARTAGENA HOSTAGES FREED AFTER 17 HRS",
+        "US READIES NEW GLOBAL TARIFF PLAN",
+        "ABREGO GARCIA LEAVES US FOR SPAIN",
     ]),
-    ("AFRICA", "4", [
-        ("ZIMBABWE ARREST WARRANT FOR MUGABE'S SON", None),
-        ("AFRICAN INSURGENTS TURN TO CHEAP DRONES", "flame"),
-        ("EGYPT'S SUEZ RECOVERY LIFTS AFRICA TRADE", "ship"),
-        ("ETHIOPIA'S HEALTH PUSH DRAWS PRAISE", None),
+    ("AFRICA", 4, [
+        "ZIMBABWE ARREST WARRANT FOR MUGABE'S SON",
+        "AFRICAN INSURGENTS TURN TO CHEAP DRONES",
+        "EGYPT'S SUEZ RECOVERY LIFTS AFRICA TRADE",
+        "ETHIOPIA'S HEALTH PUSH DRAWS PRAISE",
     ]),
-    ("GLOBAL", "4", [
-        ("BARBADOS, INDIA PUSH AI GOVERNANCE", None),
-        ("UN SEEKS GLOBAL AI SAFETY RULES", "globe"),
-        ("REAL MADRID THRASH PSV 5-1", "ball"),
-        ("ASTEROID CLOSE-UPS DUE FROM DART FOLLOW-UP", "planet"),
+    ("GLOBAL", 4, [
+        "BARBADOS, INDIA PUSH AI GOVERNANCE",
+        "UN SEEKS GLOBAL AI SAFETY RULES",
+        "REAL MADRID THRASH PSV 5-1",
+        "ASTEROID CLOSE-UPS DUE FROM DART FOLLOW-UP",
     ]),
 ]
 
-DIST = [
-    ("ASIA", 9),
-    ("MIDDLE EAST", 6),
-    ("EUROPE", 8),
-    ("AMERICAS", 8),
-    ("AFRICA", 4),
-    ("GLOBAL", 4),
-]
-DIST_COLORS = [
-    (176, 30, 40),
-    (214, 110, 30),
-    (22, 35, 63),
-    (40, 110, 70),
-    (120, 70, 140),
-    (90, 88, 82),
-]
+DIST = [("ASIA", 9, RED), ("MIDDLE EAST", 6, (214, 110, 30)),
+        ("EUROPE", 8, NAVY), ("AMERICAS", 8, (40, 110, 70)),
+        ("AFRICA", 4, (120, 70, 140)), ("GLOBAL", 4, GREY)]
 
-MAP_W, MAP_H = CONTENT_W, 96
-# Reference continent polygons scaled cleanly inside MAP_W x MAP_H
+# Simplified continent outlines, in a 900x100 map box.
 CONTINENTS = [
-    [(42, 16), (125, 6), (208, 12), (240, 25), (218, 46), (176, 58),
-     (145, 78), (94, 82), (52, 58), (32, 33)],
-    [(260, 4), (292, 2), (308, 10), (282, 17), (260, 10)],
-    [(218, 62), (260, 57), (292, 65), (282, 85), (250, 90), (224, 77)],
-    [(446, 12), (488, 6), (520, 15), (510, 29), (478, 33), (456, 25)],
-    [(456, 37), (510, 33), (542, 45), (530, 70), (500, 86), (468, 74),
-     (452, 53)],
-    [(530, 8), (676, 4), (810, 12), (882, 25), (850, 50), (778, 62),
-     (705, 57), (622, 50), (560, 33), (530, 20)],
-    [(788, 73), (850, 70), (882, 77), (850, 88), (798, 86), (778, 80)],
+    [(30, 20), (110, 8), (190, 14), (220, 28), (200, 52), (160, 64),
+     (130, 86), (85, 90), (45, 62), (25, 36)],
+    [(240, 6), (270, 4), (285, 12), (262, 20), (242, 12)],
+    [(200, 66), (240, 62), (270, 70), (260, 92), (232, 96),
+     (208, 82)],
+    [(420, 14), (460, 8), (490, 16), (480, 32), (450, 36), (430, 28)],
+    [(430, 40), (480, 36), (510, 48), (500, 74), (470, 90),
+     (442, 78), (426, 56)],
+    [(500, 10), (640, 5), (770, 14), (840, 28), (810, 54), (740, 66),
+     (670, 60), (590, 52), (530, 34), (500, 22)],
+    [(750, 78), (810, 74), (840, 82), (810, 94), (762, 92),
+     (742, 86)],
 ]
-
-# (x, y, label, align) where align is "right" or "left" of the dot
+# Marker positions are fractions of the 900x100 map box.
 MARKERS = [
-    (360, 11, "MERCURY", "right"),
-    (482, 20, "BERLIN", "left"),
-    (556, 16, "MOSCOW", "right"),
-    (606, 45, "HORMUZ", "right"),
-    (734, 32, "JIUQUAN", "right"),
-    (242, 62, "CARTAGENA", "right"),
+    (0.42, 0.30, "BERLIN"), (0.56, 0.28, "MOSCOW"),
+    (0.64, 0.52, "HORMUZ"), (0.80, 0.34, "JIUQUAN"),
+    (0.17, 0.62, "CARTAGENA"), (0.36, 0.22, "MERCURY"),
 ]
 
-_FONT_CACHE = {}
+TIMELINE = [
+    ("21 NOV", "BEPICOLOMBO ENTERS MERCURY ORBIT"),
+    ("00:18 UTC", "SHENZHOU-24 LIFTOFF (25 NOV)"),
+    ("03:56 UTC", "SHENZHOU-24 DOCKS TIANGONG"),
+]
 
 
-def load(path, size):
-    key = (path, size)
-    if key not in _FONT_CACHE:
-        _FONT_CACHE[key] = ImageFont.truetype(path, size)
-    return _FONT_CACHE[key]
+def build():
+    img = Image.new("RGB", (W, H), PAPER)
+    d = ImageDraw.Draw(img)
+    d.rectangle([6, 6, W - 7, H - 7], outline=INK, width=2)
+    y = 22
 
+    # ---- masthead ----
+    # Title is centred left of the DATE CHECK box so the two never touch.
+    title_f = font(F_SERIF_B, 38)
+    draw_center(d, 460, y, "THE WORLD IN ONE IMAGE", title_f)
+    y += 52
+    date_f = font(F_SANS_B, 15)
+    draw_center(d, W // 2, y, "T H U R S D A Y ,  2 6  N O V E M B E R  2 0 2 6",
+                date_f, fill=RED)
+    y += 24
+    # red DATE CHECK box, top right
+    box_w, box_h = 200, 46
+    bx0, by0 = W - MARGIN - box_w, 20
+    d.rectangle([bx0, by0, bx0 + box_w, by0 + box_h], outline=RED, width=2)
+    d.rectangle([bx0, by0, bx0 + box_w, by0 + 20], fill=RED)
+    dc_f = font(F_SANS_B, 13)
+    draw_center(d, bx0 + box_w // 2, by0 + 3, "DATE CHECK", dc_f, fill=WHITE)
+    dc2_f = font(F_SANS_B, 11)
+    draw_center(d, bx0 + box_w // 2, by0 + 25, "THU 26 NOV 2026 \u00b7 UTC",
+                dc2_f, fill=RED)
+    y = rule(d, y, weight=3)
+    y += 8
 
-def fit_lines(draw, text, font, width):
-    done, current = [], ""
-    for word in text.split(" "):
-        candidate = (current + " " + word).strip()
-        if draw.textlength(candidate, font=font) <= width:
-            current = candidate
-        else:
-            if current:
-                done.append(current)
-            current = word
-    if current:
-        done.append(current)
-    return done
-
-
-def fit_font_single_line(draw, text, path, max_size, min_size, max_width):
-    for size in range(max_size, min_size - 1, -1):
-        font = load(path, size)
-        if draw.textlength(text, font=font) <= max_width:
-            return font
-    return load(path, min_size)
-
-
-def put_centred(draw, cx, y, text, font, fill=FOREGROUND):
-    wide = draw.textlength(text, font=font)
-    draw.text((cx - wide / 2, y), text, font=font, fill=fill)
-    return y + font.size
-
-
-def hrule(draw, y, x0=GUTTER, x1=PAGE_W - GUTTER, weight=1, fill=FOREGROUND):
-    draw.rectangle([x0, y, x1, y + weight - 1], fill=fill)
-    return y + weight
-
-
-def icon_satellite(draw, x, y, s, ink=DEEP):
-    # Solar panel wings
-    draw.rectangle([x, y + s * .34, x + s * .28, y + s * .66], fill=ink)
-    draw.rectangle([x + s * .72, y + s * .34, x + s, y + s * .66], fill=ink)
-    # Solar panel struts
-    draw.line([x + s * .28, y + s * .5, x + s * .36, y + s * .5],
-              fill=FOREGROUND, width=max(1, s // 24))
-    draw.line([x + s * .64, y + s * .5, x + s * .72, y + s * .5],
-              fill=FOREGROUND, width=max(1, s // 24))
-    # Solar grid lines on larger icons
-    if s >= 24:
-        for frac in (0.14, 0.86):
-            draw.line([x + s * frac, y + s * .34, x + s * frac, y + s * .66],
-                      fill=WHITE, width=1)
-        draw.line([x, y + s * .5, x + s * .28, y + s * .5], fill=WHITE, width=1)
-        draw.line([x + s * .72, y + s * .5, x + s, y + s * .5], fill=WHITE, width=1)
-    # Central satellite body
-    draw.rectangle([x + s * .36, y + s * .26, x + s * .64, y + s * .74],
-                   fill=FOREGROUND, outline=ink, width=1)
-    # Nuclear warning core indicator
-    draw.ellipse([x + s * .42, y + s * .42, x + s * .58, y + s * .58],
-                 fill=ACCENT)
-    # Top antenna + dish
-    draw.line([x + s * .5, y + s * .14, x + s * .5, y + s * .26],
-              fill=FOREGROUND, width=max(1, s // 20))
-    draw.arc([x + s * .36, y + s * .02, x + s * .64, y + s * .24],
-             20, 160, fill=FOREGROUND, width=max(1, s // 18))
-    # Signal arcs
-    if s >= 24:
-        draw.arc([x + s * .62, y + s * .02, x + s * .86, y + s * .26],
-                 270, 355, fill=ACCENT, width=2)
-        draw.arc([x + s * .66, y - s * .04, x + s * .96, y + s * .26],
-                 275, 350, fill=ACCENT, width=1)
-
-
-def icon_planet(draw, x, y, s, ink=DEEP):
-    # Mercury sphere
-    r = s * .30
-    cx, cy = x + s * .50, y + s * .50
-    draw.ellipse([cx - r, cy - r, cx + r, cy + r],
-                 fill=(110, 132, 156), outline=ink, width=max(1, s // 18))
-    # Surface craters
-    if s >= 24:
-        draw.ellipse([cx - r * .48, cy - r * .35, cx - r * .12, cy + r * .01],
-                     fill=(84, 104, 128))
-        draw.ellipse([cx + r * .15, cy + r * .08, cx + r * .48, cy + r * .41],
-                     fill=(84, 104, 128))
-        draw.ellipse([cx - r * .10, cy + r * .28, cx + r * .12, cy + r * .50],
-                     fill=(136, 156, 178))
-    # Tilted orbit ring around planet
-    rx, ry = s * .48, s * .17
-    angle = -0.38
-    ca, sa = math.cos(angle), math.sin(angle)
-    pts = []
-    for deg in range(0, 361, 10):
-        rad = math.radians(deg)
-        px = rx * math.cos(rad)
-        py = ry * math.sin(rad)
-        pts.append((cx + px * ca - py * sa, cy + px * sa + py * ca))
-    draw.line(pts, fill=ink, width=max(1, s // 22))
-    # BepiColombo spacecraft dot on orbit
-    rad = math.radians(-28)
-    px, py = rx * math.cos(rad), ry * math.sin(rad)
-    ox, oy = cx + px * ca - py * sa, cy + px * sa + py * ca
-    dot = max(2, s // 14)
-    draw.ellipse([ox - dot, oy - dot, ox + dot, oy + dot],
-                 fill=ACCENT, outline=WHITE, width=1)
-
-
-def icon_rocket(draw, x, y, s, ink=DEEP):
-    draw.polygon([(x + s * .5, y), (x + s * .72, y + s * .35),
-                  (x + s * .28, y + s * .35)], fill=ink)
-    draw.rectangle([x + s * .32, y + s * .32, x + s * .68, y + s * .72],
-                   fill=ink)
-    draw.polygon([(x + s * .32, y + s * .72), (x + s * .12, y + s * .88),
-                  (x + s * .32, y + s * .82)], fill=ink)
-    draw.polygon([(x + s * .68, y + s * .72), (x + s * .88, y + s * .88),
-                  (x + s * .68, y + s * .82)], fill=ink)
-    draw.polygon([(x + s * .42, y + s * .72), (x + s * .58, y + s * .72),
-                  (x + s * .5, y + s)], fill=ACCENT)
-    draw.ellipse([x + s * .42, y + s * .42, x + s * .58, y + s * .58],
-                 fill=WHITE)
-
-
-def icon_shield(draw, x, y, s, ink=ACCENT):
-    draw.polygon([(x + s * .5, y), (x + s * .94, y + s * .18),
-                  (x + s * .94, y + s * .55), (x + s * .5, y + s),
-                  (x + s * .06, y + s * .55), (x + s * .06, y + s * .18)],
-                 outline=ink, width=max(1, s // 9))
-    draw.ellipse([x + s * .38, y + s * .30, x + s * .62, y + s * .54],
-                 fill=ink)
-    draw.rectangle([x + s * .45, y + s * .50, x + s * .55, y + s * .74],
-                   fill=ink)
-
-
-def icon_globe(draw, x, y, s, ink=DEEP):
-    draw.ellipse([x, y, x + s, y + s], outline=ink, width=max(1, s // 9))
-    draw.ellipse([x + s * .3, y, x + s * .7, y + s], outline=ink, width=1)
-    draw.line([x, y + s * .5, x + s, y + s * .5], fill=ink, width=1)
-    draw.arc([x, y + s * .18, x + s, y + s * .82], 200, 340, fill=ink, width=1)
-    draw.arc([x, y + s * .18, x + s, y + s * .82], 20, 160, fill=ink, width=1)
-
-
-def icon_ship(draw, x, y, s, ink=DEEP):
-    draw.polygon([(x, y + s * .55), (x + s, y + s * .55),
-                  (x + s * .85, y + s * .85), (x + s * .15, y + s * .85)],
-                 fill=ink)
-    draw.rectangle([x + s * .44, y + s * .12, x + s * .56, y + s * .55],
-                   fill=ink)
-    draw.line([x + s * .05, y + s * .95, x + s * .95, y + s * .95],
-              fill=MAP_LINE, width=max(1, s // 8))
-
-
-def icon_flame(draw, x, y, s, ink=(214, 110, 30)):
-    draw.polygon([(x + s * .5, y), (x + s * .85, y + s * .45),
-                  (x + s * .95, y + s * .7), (x + s * .7, y + s),
-                  (x + s * .3, y + s), (x + s * .05, y + s * .7),
-                  (x + s * .15, y + s * .45)], fill=ink)
-    draw.polygon([(x + s * .5, y + s * .45), (x + s * .68, y + s * .68),
-                  (x + s * .5, y + s * .85), (x + s * .32, y + s * .68)],
-                 fill=(250, 232, 205))
-
-
-def icon_ball(draw, x, y, s, ink=FOREGROUND):
-    draw.ellipse([x, y, x + s, y + s], outline=ink, width=max(1, s // 9))
-    draw.polygon([(x + s * .5, y + s * .3), (x + s * .68, y + s * .45),
-                  (x + s * .6, y + s * .68), (x + s * .4, y + s * .68),
-                  (x + s * .32, y + s * .45)], fill=ink)
-
-
-ICONS = {
-    "satellite": icon_satellite,
-    "planet": icon_planet,
-    "rocket": icon_rocket,
-    "shield": icon_shield,
-    "globe": icon_globe,
-    "ship": icon_ship,
-    "flame": icon_flame,
-    "ball": icon_ball,
-}
-
-
-def draw_globe(draw, cx, cy, radius):
-    draw.ellipse([cx - radius, cy - radius, cx + radius, cy + radius],
-                 outline=FOREGROUND, width=3)
-    draw.ellipse([cx - 10, cy - radius, cx + 10, cy + radius],
-                 outline=FOREGROUND, width=2)
-    draw.line([cx - radius, cy, cx + radius, cy], fill=FOREGROUND, width=2)
-    draw.arc([cx - radius, cy - 14, cx + radius, cy + 14], 200, 340,
-             fill=FOREGROUND, width=2)
-    draw.arc([cx - radius, cy - 14, cx + radius, cy + 14], 20, 160,
-             fill=FOREGROUND, width=2)
-
-
-def draw_masthead(draw):
-    cx = PAGE_W // 2
-    draw_globe(draw, 62, 56, 17)
-    # Red-bordered DATE CHECK badge
-    bx0, by0, bx1, by1 = 794, 30, PAGE_W - GUTTER, 72
-    draw.rectangle([bx0, by0, bx1, by1], fill=WHITE, outline=ACCENT, width=2)
-    draw.rectangle([bx0, by0, bx1, by0 + 19], fill=ACCENT)
-    put_centred(draw, (bx0 + bx1) / 2, by0 + 3, "DATE CHECK",
-                load(SANS_BOLD, 12), fill=WHITE)
-    put_centred(draw, (bx0 + bx1) / 2, by0 + 24, "THU 26 NOV 2026 · UTC",
-                load(SANS_BOLD, 12), fill=ACCENT)
-    # Newspaper title & date line
-    put_centred(draw, cx, 32, "THE WORLD IN ONE IMAGE",
-                load(SERIF_BOLD, 33))
-    put_centred(draw, cx, 78,
-                "T H U R S D A Y ,  2 6  N O V E M B E R  2 0 2 6",
-                load(SANS_BOLD, 15), fill=ACCENT)
-    y = hrule(draw, 102, weight=3)
-    y = hrule(draw, y + 3, weight=1)
-    return y + 7
-
-
-def draw_kpi(draw, y):
-    h = 34
-    draw.rectangle([GUTTER, y, PAGE_W - GUTTER, y + h], fill=KPI_BG,
-                   outline=RULE_LIGHT, width=1)
-    cell_w = CONTENT_W / len(KPIS)
+    # ---- KPI bar ----
+    kpi_h = 44
+    d.rectangle([MARGIN, y, W - MARGIN, y + kpi_h], fill=KPI_FILL,
+                outline=INK, width=1)
+    cell_w = INNER // 5
     for i, (num, label) in enumerate(KPIS):
-        x = int(GUTTER + i * cell_w)
+        cx = MARGIN + cell_w * i + cell_w // 2
         if i:
-            draw.line([x, y + 5, x, y + h - 5], fill=MUTED, width=1)
-        draw.text((x + 8, y + 3), num, font=load(SANS_BOLD, 16), fill=ACCENT)
-        lbl_font = fit_font_single_line(draw, label, SANS_BOLD, 8, 7,
-                                        cell_w - 12)
-        draw.text((x + 8, y + 21), label, font=lbl_font, fill=BODY_INK)
-    return y + h + 8
+            d.line([MARGIN + cell_w * i, y + 6,
+                    MARGIN + cell_w * i, y + kpi_h - 6], fill=GREY, width=1)
+        d.text((cx - d.textlength(num, font=font(F_SANS_B, 17)) / 2, y + 4),
+               num, font=font(F_SANS_B, 17), fill=RED)
+        d.text((cx - d.textlength(label, font=font(F_SANS_B, 9)) / 2, y + 26),
+               label, font=font(F_SANS_B, 9), fill=BODY)
+    y += kpi_h + 10
 
+    # ---- three leads ----
+    lead_w = (INNER - 2 * GAP) // 3
+    lead_top = y
+    icon_h = 74
+    for i, lead in enumerate(LEADS):
+        x0 = MARGIN + i * (lead_w + GAP)
+        d.rectangle([x0, y, x0 + lead_w, y + icon_h], fill=lead["tint"],
+                    outline=INK, width=1)
+        ICONS[lead["icon"]](d, x0 + lead_w // 2 - 26, y + 10, 52)
+        d.text((x0 + 6, y + icon_h - 16), lead["source"],
+               font=font(F_SANS, 9), fill=GREY)
+        ty = y + icon_h + 8
+        d.text((x0, ty), lead["kicker"], font=font(F_SANS_B, 11), fill=RED)
+        ty += 16
+        head_lines = wrap_text(d, lead["headline"], font(F_SERIF_B, 19),
+                               lead_w)
+        for line in head_lines:
+            d.text((x0, ty), line, font=font(F_SERIF_B, 19), fill=INK)
+            ty += 22
+        ty += 2
+        for line in wrap_text(d, lead["deck"], font(F_SERIF, 12), lead_w):
+            d.text((x0, ty), line, font=font(F_SERIF, 12), fill=BODY)
+            ty += 15
+    # leads block height: icon 74 + kicker 16 + headline ~44 + deck ~75
+    y = lead_top + icon_h + 8 + 16 + 44 + 2 + 75 + 6
+    y = rule(d, y, weight=1)
+    y += 6
 
-def draw_leads(draw, y):
-    box_h = 74
-    kicker_h = 17
-    head_lines_max = 2
-    head_line_h = 24
-    deck_lines_max = 4
-    deck_line_h = 14
-    for idx, lead in enumerate(LEADS):
-        x = COL_X[idx]
-        # Illustrated header box
-        draw.rectangle([x, y, x + COL_W, y + box_h], fill=lead["tint"],
-                       outline=FOREGROUND, width=1)
-        icon_s = 46
-        ICONS[lead["icon"]](draw, x + COL_W // 2 - icon_s // 2, y + 7, icon_s)
-        draw.text((x + 7, y + box_h - 14), lead["source"],
-                  font=load(SANS_BOLD, 9), fill=MUTED)
-        # Kicker
-        yy = y + box_h + 6
-        draw.text((x, yy), lead["kicker"], font=load(SANS_BOLD, 12),
-                  fill=ACCENT)
-        yy += kicker_h
-        # Headline (2 lines, exact fit)
-        head_font = load(SERIF_BOLD, 20)
-        hlines = fit_lines(draw, lead["headline"], head_font, COL_W)
-        if len(hlines) > head_lines_max:
-            head_font = load(SERIF_BOLD, 18)
-            hlines = fit_lines(draw, lead["headline"], head_font, COL_W)
-        for line in hlines[:head_lines_max]:
-            draw.text((x, yy), line, font=head_font, fill=FOREGROUND)
-            yy += head_line_h
-        yy += 3
-        # Deck (wrapped, auto-size so all lines fit with zero clipping)
-        deck_font = load(SANS, 11)
-        dlines = fit_lines(draw, lead["deck"], deck_font, COL_W)
-        if len(dlines) > deck_lines_max:
-            deck_font = load(SANS, 10)
-            dlines = fit_lines(draw, lead["deck"], deck_font, COL_W)
-        for line in dlines[:deck_lines_max]:
-            draw.text((x, yy), line, font=deck_font, fill=BODY_INK)
-            yy += deck_line_h
-    return (y + box_h + 6 + kicker_h + head_lines_max * head_line_h
-            + 3 + deck_lines_max * deck_line_h + 6)
-
-
-def draw_map(draw, y):
-    label_font = load(SANS_BOLD, 12)
-    draw.text((GUTTER, y), "THE WORLD TODAY", font=label_font, fill=DEEP)
-    right = "6 REGIONS · 39 STORIES + 3 LEADS"
-    draw.text((PAGE_W - GUTTER - draw.textlength(right, font=label_font), y),
-              right, font=label_font, fill=ACCENT)
-    my = y + 17
-    draw.rectangle([GUTTER, my, GUTTER + MAP_W, my + MAP_H],
-                   fill=(232, 240, 246), outline=FOREGROUND, width=1)
+    # ---- world map ----
+    map_h = 96
+    d.text((MARGIN, y), "THE WORLD TODAY", font=font(F_SANS_B, 12), fill=NAVY)
+    d.text((W - MARGIN - d.textlength("6 REGIONS \u00b7 39 STORIES + 3 LEADS",
+                                      font=font(F_SANS_B, 11)), y),
+           "6 REGIONS \u00b7 39 STORIES + 3 LEADS",
+           font=font(F_SANS_B, 11), fill=RED)
+    y += 18
+    map_x0, map_y0 = MARGIN, y
+    d.rectangle([map_x0, map_y0, map_x0 + INNER, map_y0 + map_h],
+                fill=(232, 238, 244), outline=INK, width=1)
+    scale_x = INNER / 900.0
+    scale_y = map_h / 100.0
     for poly in CONTINENTS:
-        pts = [(GUTTER + px, my + py) for px, py in poly]
-        draw.polygon(pts, fill=MAP_FILL, outline=MAP_LINE)
-    mfont = load(SANS_BOLD, 9)
-    for mx, myy, label, align in MARKERS:
-        cx, cy = GUTTER + mx, my + myy
-        if label == "MERCURY":
-            draw.ellipse([cx - 6, cy - 6, cx + 6, cy + 6],
-                         outline=DEEP, width=1)
-        draw.ellipse([cx - 4, cy - 4, cx + 4, cy + 4], fill=ACCENT,
-                     outline=WHITE, width=1)
-        tw = draw.textlength(label, font=mfont)
-        if align == "left":
-            lx = cx - 6 - tw
-        else:
-            lx = cx + 6
-        draw.text((lx, cy - 5), label, font=mfont, fill=ACCENT)
-    return my + MAP_H + 8
+        pts = [(map_x0 + px * scale_x, map_y0 + py * scale_y)
+               for px, py in poly]
+        d.polygon(pts, fill=SEA, outline=SEA_EDGE)
+    for fx, fy, name in MARKERS:
+        mx = map_x0 + fx * INNER
+        my = map_y0 + fy * map_h
+        d.ellipse([mx - 4, my - 4, mx + 4, my + 4], fill=RED,
+                  outline=WHITE, width=1)
+        label_f = font(F_SANS_B, 9)
+        lw = d.textlength(name, font=label_f)
+        lx = min(max(mx - lw / 2, map_x0 + 2), map_x0 + INNER - lw - 2)
+        d.text((lx, my - 16), name, font=label_f, fill=RED)
+    y += map_h + 10
 
+    # ---- UTC timeline ----
+    d.text((MARGIN, y), "UTC TIMELINE \u2014 KEY EVENTS (21\u201326 NOVEMBER 2026)",
+           font=font(F_SANS_B, 12), fill=NAVY)
+    y += 18
+    # Leave room above the line for the two raised event labels.
+    tl_y = y + 30
+    d.line([MARGIN, tl_y, W - MARGIN, tl_y], fill=INK, width=2)
+    slots = [(0.08, "21 NOV"), (0.5, "25 NOV 00:00"), (0.92, "26 NOV 00:00")]
+    for frac, lab in slots:
+        tx = MARGIN + frac * INNER
+        d.line([tx, tl_y - 4, tx, tl_y + 4], fill=INK, width=1)
+        d.text((tx - d.textlength(lab, font=font(F_SANS, 9)) / 2, tl_y + 8),
+               lab, font=font(F_SANS, 9), fill=GREY)
+    events = [(0.10, 0), (0.46, 1), (0.82, 2)]
+    for frac, idx in events:
+        ex = MARGIN + frac * INNER
+        d.ellipse([ex - 4, tl_y - 4, ex + 4, tl_y + 4], fill=RED)
+        lab = TIMELINE[idx][0] + " \u2014 " + TIMELINE[idx][1]
+        lab_f = font(F_SANS_B, 9)
+        lw = d.textlength(lab, font=lab_f)
+        lx = min(max(ex - lw / 2, MARGIN), W - MARGIN - lw)
+        # stagger: first and third above, middle below
+        ly = tl_y - 26 if idx != 1 else tl_y + 22
+        d.text((lx, ly), lab, font=lab_f, fill=RED)
+    y = tl_y + 40
 
-def draw_timeline(draw, y):
-    label_font = load(SANS_BOLD, 12)
-    draw.text((GUTTER, y), "UTC TIMELINE — KEY EVENTS (21–26 NOVEMBER 2026)",
-              font=label_font, fill=DEEP)
-    line_y = y + 34
-    x0, x1 = GUTTER, PAGE_W - GUTTER
-    span = x1 - x0
-    draw.line([x0, line_y, x1, line_y], fill=FOREGROUND, width=2)
+    # ---- region grid ----
+    col_w = (INNER - 2 * GAP) // 3
+    rows = [REGIONS[0:3], REGIONS[3:6]]
+    for r, row in enumerate(rows):
+        row_h = 0
+        for c, (name, count, items) in enumerate(row):
+            x0 = MARGIN + c * (col_w + GAP)
+            hdr_h = 20
+            d.rectangle([x0, y, x0 + col_w, y + hdr_h], fill=NAVY)
+            d.text((x0 + 6, y + 4), name, font=font(F_SANS_B, 11),
+                   fill=WHITE)
+            cnt = f"{count} STORIES"
+            d.text((x0 + col_w - 6 - d.textlength(cnt, font=font(F_SANS_B, 10)),
+                    y + 4), cnt, font=font(F_SANS_B, 10), fill=WHITE)
+            iy = y + hdr_h + 4
+            for item in items:
+                lines = wrap_text(d, item, font(F_SANS, 10), col_w - 4)
+                for line in lines:
+                    d.text((x0 + 2, iy), line, font=font(F_SANS, 10),
+                           fill=BODY)
+                    iy += 13
+            row_h = max(row_h, iy - y)
+        y += row_h + 8
+    y += 2
 
-    # Timeline axis ticks (21 Nov, scale break, then 25 Nov 00:00 -> 26 Nov)
-    tick_font = load(SANS, 9)
-    ticks = [
-        (0.06, "21 NOV"),
-        (0.32, "25 NOV 00:00"),
-        (0.56, "04:00"),
-        (0.76, "12:00"),
-        (0.95, "26 NOV 00:00"),
-    ]
-    for frac, tlabel in ticks:
-        tx = x0 + span * frac
-        draw.line([tx, line_y - 4, tx, line_y + 4], fill=FOREGROUND, width=2)
-        tw = draw.textlength(tlabel, font=tick_font)
-        draw.text((tx - tw / 2, line_y + 6), tlabel, font=tick_font,
-                  fill=MUTED)
+    # ---- distribution bar ----
+    d.text((MARGIN, y), "STORIES BY REGION (39 GRID STORIES)",
+           font=font(F_SANS_B, 11), fill=NAVY)
+    y += 16
+    bar_h = 16
+    total = sum(n for _, n, _ in DIST)
+    bx = MARGIN
+    for name, n, color in DIST:
+        seg = INNER * n // total
+        d.rectangle([bx, y, bx + seg - 1, y + bar_h], fill=color)
+        lab = str(n)
+        d.text((bx + seg // 2 - d.textlength(lab, font=font(F_SANS_B, 10)) / 2,
+                y + 2), lab, font=font(F_SANS_B, 10), fill=WHITE)
+        bx += seg
+    y += bar_h + 6
+    lx = MARGIN
+    for name, n, color in DIST:
+        d.rectangle([lx, y, lx + 10, y + 10], fill=color)
+        lab = f"{name} {n}"
+        d.text((lx + 13, y), lab, font=font(F_SANS_B, 9), fill=BODY)
+        lx += 13 + d.textlength(lab, font=font(F_SANS_B, 9)) + 14
+    y += 18
 
-    # Scale break marks between 21 Nov and 25 Nov
-    bx = x0 + span * 0.21
-    draw.rectangle([bx - 5, line_y - 4, bx + 5, line_y + 4], fill=BACKGROUND)
-    draw.line([bx - 4, line_y + 5, bx, line_y - 5], fill=MUTED, width=1)
-    draw.line([bx + 1, line_y + 5, bx + 5, line_y - 5], fill=MUTED, width=1)
+    # ---- footer ----
+    y = rule(d, y, weight=1)
+    y += 6
+    foot_f = font(F_SANS, 10)
+    draw_center(d, W // 2, y,
+                "Sources: Reuters \u00b7 AP \u00b7 Xinhua \u00b7 NYT \u00b7 CNN "
+                "\u00b7 SCMP \u00b7 Washington Post", foot_f, fill=GREY)
+    y += 14
+    draw_center(d, W // 2, y,
+                "Compiled from the day's reporting  \u00b7  Thursday 26 November 2026",
+                foot_f, fill=GREY)
 
-    # 3 staggered UTC events
-    ev_font = load(SANS_BOLD, 10)
-    events = [
-        (0.06, "21 NOV — BEPICOLOMBO ENTERS MERCURY ORBIT", True),
-        (0.335, "00:18 UTC — SHENZHOU-24 LIFTOFF (25 NOV)", False),
-        (0.555, "03:56 UTC — SHENZHOU-24 DOCKS TIANGONG", True),
-    ]
-    for frac, elabel, above in events:
-        tx = x0 + span * frac
-        draw.ellipse([tx - 4, line_y - 4, tx + 4, line_y + 4],
-                     fill=ACCENT, outline=WHITE, width=1)
-        ew = draw.textlength(elabel, font=ev_font)
-        lx = min(max(x0, tx - 4), x1 - ew)
-        if above:
-            draw.text((lx, line_y - 18), elabel, font=ev_font, fill=ACCENT)
-        else:
-            draw.text((lx, line_y + 19), elabel, font=ev_font, fill=ACCENT)
-    return line_y + 34
-
-
-def draw_regions(draw, y, row_regions, row_h):
-    for idx, (name, count, stories) in enumerate(row_regions):
-        x = COL_X[idx]
-        if idx > 0:
-            vx = x - COL_GAP // 2
-            draw.line([vx, y, vx, y + row_h - 4], fill=RULE_LIGHT, width=1)
-        draw.rectangle([x, y, x + COL_W, y + 19], fill=DEEP)
-        draw.text((x + 6, y + 3), name, font=load(SANS_BOLD, 12), fill=WHITE)
-        cnt = f"{count} STORIES"
-        cnt_font = load(SANS_BOLD, 9)
-        draw.text((x + COL_W - 6 - draw.textlength(cnt, font=cnt_font), y + 5),
-                  cnt, font=cnt_font, fill=WHITE)
-        yy = y + 24
-        for headline, icon in stories:
-            tx = x
-            if icon:
-                ICONS[icon](draw, x, yy + 1, 12)
-                tx = x + 16
-            avail_w = COL_W - (tx - x)
-            font = fit_font_single_line(draw, headline, SANS, 11, 8, avail_w)
-            y_off = (11 - font.size) // 2
-            draw.text((tx, yy + y_off), headline, font=font, fill=BODY_INK)
-            yy += 16
-    return y + row_h
-
-
-def draw_distribution(draw, y):
-    label_font = load(SANS_BOLD, 12)
-    draw.text((GUTTER, y), "STORIES BY REGION (39 GRID STORIES)",
-              font=label_font, fill=DEEP)
-    y += 17
-    total = sum(n for _, n in DIST)
-    bx, bw, bh = GUTTER, CONTENT_W, 17
-    xx = bx
-    bar_font = load(SANS_BOLD, 10)
-    for idx, ((name, n), color) in enumerate(zip(DIST, DIST_COLORS)):
-        if idx == len(DIST) - 1:
-            w = (bx + bw) - xx
-        else:
-            w = round(bw * n / total)
-        draw.rectangle([xx, y, xx + w - 1, y + bh], fill=color)
-        num_txt = str(n)
-        nw = draw.textlength(num_txt, font=bar_font)
-        draw.text((xx + (w - nw) / 2, y + 3), num_txt,
-                  font=bar_font, fill=WHITE)
-        xx += w
-    draw.rectangle([bx, y, bx + bw, y + bh], outline=FOREGROUND, width=1)
-    y += bh + 6
-    lx = GUTTER
-    leg_font = load(SANS_BOLD, 10)
-    for (name, n), color in zip(DIST, DIST_COLORS):
-        draw.rectangle([lx, y + 1, lx + 10, y + 11], fill=color)
-        txt = f"{name} {n}"
-        draw.text((lx + 14, y), txt, font=leg_font, fill=BODY_INK)
-        lx += 14 + draw.textlength(txt, font=leg_font) + 18
-    return y + 15
-
-
-def render():
-    page = Image.new("RGB", (PAGE_W, PAGE_H), BACKGROUND)
-    draw = ImageDraw.Draw(page)
-    draw.rectangle([12, 12, PAGE_W - 13, PAGE_H - 13], outline=FOREGROUND,
-                   width=2)
-    draw.rectangle([20, 20, PAGE_W - 21, PAGE_H - 21], outline=FOREGROUND,
-                   width=1)
-    y = draw_masthead(draw)
-    y = draw_kpi(draw, y)
-    y = draw_leads(draw, y)
-    y = draw_map(draw, y)
-    y = draw_timeline(draw, y)
-    y = draw_regions(draw, y + 4, REGIONS[:3], 170)
-    y = draw_regions(draw, y + 4, REGIONS[3:], 154)
-    y = draw_distribution(draw, y + 6)
-    hrule(draw, y + 6)
-    put_centred(
-        draw, PAGE_W // 2, y + 11,
-        "Sources: Reuters · AP · Xinhua · NYT · CNN · SCMP · Washington Post",
-        load(SANS, 12), fill=MUTED,
-    )
-    put_centred(
-        draw, PAGE_W // 2, y + 27,
-        "Compiled from the day's reporting  ·  Thursday 26 November 2026",
-        load(SANS, 12), fill=MUTED,
-    )
-    return page
-
-
-def main():
-    image = render()
-    image.save("entry.png", "PNG", optimize=True)
-    print("saved entry.png", image.size)
+    img.save("entry.png")
+    print("saved entry.png (1024, 1024)")
 
 
 if __name__ == "__main__":
-    main()
+    build()
